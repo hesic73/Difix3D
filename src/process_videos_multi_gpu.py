@@ -356,6 +356,9 @@ def worker_process(
 
             except Exception as e:
                 # Update status - failed
+                print(f"[GPU {gpu_id}] Error processing video: {e}")
+                import traceback
+                traceback.print_exc()
                 current = status_dict[gpu_id]
                 status_dict[gpu_id] = {
                     'status': 'idle',
@@ -368,6 +371,9 @@ def worker_process(
 
     except Exception as e:
         # Model loading or other critical error
+        print(f"[GPU {gpu_id}] CRITICAL ERROR: {e}")
+        import traceback
+        traceback.print_exc()
         status_dict[gpu_id] = {
             'status': 'error',
             'video': None,
