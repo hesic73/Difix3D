@@ -140,19 +140,26 @@ def gather_video_files(
     if ranges is None:
         ranges = [(None, None)]
 
-    all_videos = sorted(dataset_dir.glob("*.mp4"), reverse=descending)
+    all_videos = list(dataset_dir.glob("*.mp4"))
     if not all_videos:
         raise FileNotFoundError(f"No .mp4 files found in {dataset_dir}")
 
-    filtered_videos = []
+    # Build list of (scene_id, video_path) tuples for proper numeric sorting
+    video_tuples = []
     for video_path in all_videos:
-        # Extract scene_id from filename (e.g., "00001.mp4" -> 1)
         try:
             scene_id = int(video_path.stem)
+            video_tuples.append((scene_id, video_path))
         except ValueError:
             # Skip files that don't match the expected naming format
             continue
 
+    # Sort by scene_id (numeric), not by filename (string)
+    video_tuples.sort(key=lambda x: x[0], reverse=descending)
+
+    # Filter by range and existence
+    filtered_videos = []
+    for scene_id, video_path in video_tuples:
         # Check if in range
         if not in_ranges(scene_id, ranges):
             continue

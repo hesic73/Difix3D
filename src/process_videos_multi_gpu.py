@@ -137,17 +137,24 @@ def find_pending_videos(
     if ranges is None:
         ranges = [(None, None)]
 
-    all_videos = sorted(dataset_dir.glob("*.mp4"), reverse=descending)
-    pending = []
+    all_videos = list(dataset_dir.glob("*.mp4"))
 
+    # Build list of (scene_id, video_path) tuples for proper numeric sorting
+    video_tuples = []
     for video_path in all_videos:
-        # Extract scene_id from filename (e.g., "00001.mp4" -> 1)
         try:
             scene_id = int(video_path.stem)
+            video_tuples.append((scene_id, video_path))
         except ValueError:
             # Skip files that don't match expected naming format
             continue
 
+    # Sort by scene_id (numeric), not by filename (string)
+    video_tuples.sort(key=lambda x: x[0], reverse=descending)
+
+    # Filter by range and existence
+    pending = []
+    for scene_id, video_path in video_tuples:
         # Check if in range
         if not in_ranges(scene_id, ranges):
             continue
@@ -587,16 +594,19 @@ def main(
 
     # Create shared structures
     manager = Manager()
-    task_queue = Queue()
+    task_queue = manager.Queue()
     status_dict = manager.dict()
 
     # Populate task queue
+    console.print(f"[dim]Populating queue with {len(pending_videos)} videos...[/dim]")
     for video_path in pending_videos:
         task_queue.put(video_path)
+    console.print(f"[dim]Queue populated. Adding {len(gpu_ids)} poison pills...[/dim]")
 
     # Add poison pills
     for _ in gpu_ids:
         task_queue.put(None)
+    console.print(f"[dim]Queue ready with {len(pending_videos)} videos + {len(gpu_ids)} poison pills[/dim]")
 
     # Start worker processes
     console.print(f"[bold cyan]Starting {len(gpu_ids)} worker processes...[/bold cyan]\n")
