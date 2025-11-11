@@ -289,6 +289,7 @@ def main(
     ranges: Annotated[str | None, tyro.conf.arg(help="Comma-separated ranges (e.g., '100:200,250:-1'). Use -1 for open-ended.")] = None,
     overwrite: Annotated[bool, tyro.conf.arg(help="Overwrite existing output videos. By default, existing videos are skipped.")] = False,
     descending: Annotated[bool, tyro.conf.arg(help="Process videos in descending order by ID. By default, processes in ascending order.")] = False,
+    no_tui: Annotated[bool, tyro.conf.arg(help="Disable TUI live display for debugging. Shows plain text output instead.")] = False,
     model_id: Annotated[str, tyro.conf.arg(help="Difix model ID or local path")] = "nvidia/difix",
     prompt: Annotated[str, tyro.conf.arg(help="Inference prompt")] = "remove degradation",
     num_inference_steps: Annotated[int, tyro.conf.arg(help="Number of diffusion inference steps")] = 1,
@@ -388,48 +389,98 @@ def main(
         console=console,
     )
 
-    # Process videos with live display
-    with Live(console=console, refresh_per_second=4) as live:
-        video_task = video_progress.add_task("Processing Videos", total=len(video_files))
-        frame_task = frame_progress.add_task("Frames", total=0)
+    # Process videos with live display or plain text
+    if no_tui:
+        # Plain text mode for debugging
+        console.print("[yellow]Processing videos (plain text mode)...[/yellow]\n")
 
+        # Create a simple progress tracker without live updates
         for video_idx, video_path in enumerate(video_files):
             output_path = output_dir / video_path.name
 
-            # Update display
-            current_status = create_status_table(
-                total_videos=len(video_files),
-                completed=completed_count,
-                failed=failed_count,
-                current_video=video_path.name,
-                total_frames=total_frames_processed,
-                elapsed_time=time.time() - start_time,
-            )
-
-            display_group = Table.grid()
-            display_group.add_row(Panel(current_status, border_style="blue"))
-            display_group.add_row(video_progress)
-            display_group.add_row(frame_progress)
-            live.update(display_group)
-
-            # Reset frame progress for new video
-            frame_progress.reset(frame_task, completed=0, total=0)
+            print(f"\n[{video_idx+1}/{len(video_files)}] Processing {video_path.name}...")
 
             try:
-                frames_processed = process_video(
-                    video_path, output_path, pipe, prompt, num_inference_steps,
-                    guidance_scale, parsed_timesteps, frame_progress, frame_task
-                )
+                # Process without live progress display
+                reader = imageio.get_reader(str(video_path))
+                fps_detected = reader.get_meta_data().get('fps', fps)
+                total_frames = reader.count_frames()
+
+                frames_processed = 0
+                with imageio.get_writer(str(output_path), fps=fps_detected) as writer:
+                    for frame in reader:
+                        input_image = Image.fromarray(frame)
+                        pipe_kwargs = {
+                            "image": input_image,
+                            "num_inference_steps": num_inference_steps,
+                            "guidance_scale": guidance_scale,
+                        }
+                        if parsed_timesteps:
+                            pipe_kwargs["timesteps"] = parsed_timesteps
+
+                        result = pipe(prompt, **pipe_kwargs).images[0]
+                        frame_array = ensure_even_dimensions(np.array(result))
+                        writer.append_data(frame_array)
+                        frames_processed += 1
+
+                        # Print progress every 10 frames
+                        if frames_processed % 10 == 0 or frames_processed == total_frames:
+                            print(f"  Progress: {frames_processed}/{total_frames} frames", end='\r')
+
+                reader.close()
                 total_frames_processed += frames_processed
                 completed_count += 1
+                print(f"\n  ✓ Completed: {frames_processed} frames")
 
             except Exception as exc:
                 failed_count += 1
-                console.print(f"[red]✗ ERROR processing {video_path.name}: {exc}[/red]")
-                # Continue processing other videos instead of raising
+                print(f"  ✗ ERROR: {exc}")
+                import traceback
+                traceback.print_exc()
 
-            # Update video progress
-            video_progress.update(video_task, advance=1)
+    else:
+        # TUI mode with live display
+        with Live(console=console, refresh_per_second=4) as live:
+            video_task = video_progress.add_task("Processing Videos", total=len(video_files))
+            frame_task = frame_progress.add_task("Frames", total=0)
+
+            for video_idx, video_path in enumerate(video_files):
+                output_path = output_dir / video_path.name
+
+                # Update display
+                current_status = create_status_table(
+                    total_videos=len(video_files),
+                    completed=completed_count,
+                    failed=failed_count,
+                    current_video=video_path.name,
+                    total_frames=total_frames_processed,
+                    elapsed_time=time.time() - start_time,
+                )
+
+                display_group = Table.grid()
+                display_group.add_row(Panel(current_status, border_style="blue"))
+                display_group.add_row(video_progress)
+                display_group.add_row(frame_progress)
+                live.update(display_group)
+
+                # Reset frame progress for new video
+                frame_progress.reset(frame_task, completed=0, total=0)
+
+                try:
+                    frames_processed = process_video(
+                        video_path, output_path, pipe, prompt, num_inference_steps,
+                        guidance_scale, parsed_timesteps, frame_progress, frame_task
+                    )
+                    total_frames_processed += frames_processed
+                    completed_count += 1
+
+                except Exception as exc:
+                    failed_count += 1
+                    console.print(f"[red]✗ ERROR processing {video_path.name}: {exc}[/red]")
+                    # Continue processing other videos instead of raising
+
+                # Update video progress
+                video_progress.update(video_task, advance=1)
 
     # Final summary
     elapsed_time = time.time() - start_time

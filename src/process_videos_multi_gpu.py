@@ -521,6 +521,7 @@ def main(
     ranges: Annotated[str | None, tyro.conf.arg(help="Comma-separated ranges (e.g., '100:200,250:-1'). Use -1 for open-ended.")] = None,
     overwrite: Annotated[bool, tyro.conf.arg(help="Overwrite existing output videos. By default, existing videos are skipped.")] = False,
     descending: Annotated[bool, tyro.conf.arg(help="Process videos in descending order by ID. By default, processes in ascending order.")] = False,
+    no_tui: Annotated[bool, tyro.conf.arg(help="Disable TUI live display for debugging. Shows plain text output instead.")] = False,
     gpus: Annotated[str | None, tyro.conf.arg(help="Comma-separated GPU IDs (e.g., '0,1,2,3'). If not specified, uses all available GPUs.")] = None,
     model_id: Annotated[str, tyro.conf.arg(help="Difix model ID or local path")] = "nvidia/difix",
     prompt: Annotated[str, tyro.conf.arg(help="Inference prompt")] = "remove degradation",
@@ -628,14 +629,30 @@ def main(
     # Monitor progress with live display
     start_time = time.time()
 
-    with Live(
-        create_status_display(status_dict, len(pending_videos), start_time, gpu_ids),
-        refresh_per_second=2,
-        console=console
-    ) as live:
+    if no_tui:
+        # Plain text mode for debugging
+        console.print("[yellow]Monitoring workers (plain text mode)...[/yellow]\n")
         while any(p.is_alive() for p in workers):
-            live.update(create_status_display(status_dict, len(pending_videos), start_time, gpu_ids))
-            time.sleep(0.5)
+            # Print status every 5 seconds
+            time.sleep(5)
+            print(f"\n[{time.strftime('%H:%M:%S')}] Worker status:")
+            for gpu_id in gpu_ids:
+                info = status_dict.get(gpu_id, {})
+                status = info.get('status', 'unknown')
+                video = info.get('video', '-')
+                completed = info.get('completed', 0)
+                failed = info.get('failed', 0)
+                print(f"  GPU {gpu_id}: {status:12s} | Video: {video:20s} | Completed: {completed:3d} | Failed: {failed:3d}")
+    else:
+        # TUI mode
+        with Live(
+            create_status_display(status_dict, len(pending_videos), start_time, gpu_ids),
+            refresh_per_second=2,
+            console=console
+        ) as live:
+            while any(p.is_alive() for p in workers):
+                live.update(create_status_display(status_dict, len(pending_videos), start_time, gpu_ids))
+                time.sleep(0.5)
 
     # Wait for all workers to complete
     for p in workers:
