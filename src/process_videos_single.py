@@ -121,6 +121,7 @@ def gather_video_files(
     ranges: List[tuple[int | None, int | None]] | None = None,
     skip_existing: bool = True,
     output_dir: Path | None = None,
+    descending: bool = False,
 ) -> List[Path]:
     """
     Collect all .mp4 files from dataset directory with optional filtering.
@@ -131,6 +132,7 @@ def gather_video_files(
         ranges: Optional list of (start, end) tuples for filtering by scene ID
         skip_existing: If True, skip videos that already exist in output_dir
         output_dir: Output directory for checking existing files
+        descending: If True, process videos in descending order (default: ascending)
 
     Returns:
         List of video file paths to process
@@ -138,7 +140,7 @@ def gather_video_files(
     if ranges is None:
         ranges = [(None, None)]
 
-    all_videos = sorted(dataset_dir.glob("*.mp4"))
+    all_videos = sorted(dataset_dir.glob("*.mp4"), reverse=descending)
     if not all_videos:
         raise FileNotFoundError(f"No .mp4 files found in {dataset_dir}")
 
@@ -279,6 +281,7 @@ def main(
     output_dir: Annotated[Path, tyro.conf.Positional],
     ranges: Annotated[str | None, tyro.conf.arg(help="Comma-separated ranges (e.g., '100:200,250:-1'). Use -1 for open-ended.")] = None,
     overwrite: Annotated[bool, tyro.conf.arg(help="Overwrite existing output videos. By default, existing videos are skipped.")] = False,
+    descending: Annotated[bool, tyro.conf.arg(help="Process videos in descending order by ID. By default, processes in ascending order.")] = False,
     model_id: Annotated[str, tyro.conf.arg(help="Difix model ID or local path")] = "nvidia/difix",
     prompt: Annotated[str, tyro.conf.arg(help="Inference prompt")] = "remove degradation",
     num_inference_steps: Annotated[int, tyro.conf.arg(help="Number of diffusion inference steps")] = 1,
@@ -307,7 +310,8 @@ def main(
         dataset_dir,
         ranges=parsed_ranges,
         skip_existing=skip_existing,
-        output_dir=output_dir
+        output_dir=output_dir,
+        descending=descending,
     )
 
     if not video_files:
@@ -332,6 +336,10 @@ def main(
         console.print(f"[yellow]Overwrite mode:[/yellow] enabled (will reprocess existing)")
     else:
         console.print(f"[cyan]Skip existing:[/cyan] enabled (default)")
+
+    # Show processing order
+    order_str = "descending" if descending else "ascending"
+    console.print(f"[cyan]Processing order:[/cyan] {order_str}")
 
     console.print("[bold cyan]═" * 30 + "\n")
 

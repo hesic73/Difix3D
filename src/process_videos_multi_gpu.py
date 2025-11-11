@@ -119,6 +119,7 @@ def find_pending_videos(
     output_dir: Path,
     ranges: List[tuple[int | None, int | None]] | None = None,
     skip_existing: bool = True,
+    descending: bool = False,
 ) -> List[Path]:
     """
     Find videos that need processing based on range and existence filters.
@@ -128,6 +129,7 @@ def find_pending_videos(
         output_dir: Output directory for checking existing files
         ranges: List of (start, end) tuples for filtering
         skip_existing: If True, skip videos that already exist in output_dir
+        descending: If True, process videos in descending order (default: ascending)
 
     Returns:
         List of video file paths to process
@@ -135,7 +137,7 @@ def find_pending_videos(
     if ranges is None:
         ranges = [(None, None)]
 
-    all_videos = sorted(dataset_dir.glob("*.mp4"))
+    all_videos = sorted(dataset_dir.glob("*.mp4"), reverse=descending)
     pending = []
 
     for video_path in all_videos:
@@ -505,6 +507,7 @@ def main(
     output_dir: Annotated[Path, tyro.conf.Positional],
     ranges: Annotated[str | None, tyro.conf.arg(help="Comma-separated ranges (e.g., '100:200,250:-1'). Use -1 for open-ended.")] = None,
     overwrite: Annotated[bool, tyro.conf.arg(help="Overwrite existing output videos. By default, existing videos are skipped.")] = False,
+    descending: Annotated[bool, tyro.conf.arg(help="Process videos in descending order by ID. By default, processes in ascending order.")] = False,
     gpus: Annotated[str | None, tyro.conf.arg(help="Comma-separated GPU IDs (e.g., '0,1,2,3'). If not specified, uses all available GPUs.")] = None,
     model_id: Annotated[str, tyro.conf.arg(help="Difix model ID or local path")] = "nvidia/difix",
     prompt: Annotated[str, tyro.conf.arg(help="Inference prompt")] = "remove degradation",
@@ -557,7 +560,7 @@ def main(
     console.print("[bold cyan]Scanning for videos to process...[/bold cyan]")
     skip_existing = not overwrite  # By default skip existing, unless --overwrite is used
     pending_videos = find_pending_videos(
-        dataset_dir, output_dir, ranges=parsed_ranges, skip_existing=skip_existing
+        dataset_dir, output_dir, ranges=parsed_ranges, skip_existing=skip_existing, descending=descending
     )
 
     if not pending_videos:
@@ -573,6 +576,11 @@ def main(
         console.print(f"Overwrite mode: [yellow]enabled (will reprocess existing videos)[/yellow]")
     else:
         console.print(f"Skip existing: [cyan]enabled (default)[/cyan]")
+
+    # Show processing order
+    order_str = "descending" if descending else "ascending"
+    console.print(f"Processing order: [cyan]{order_str}[/cyan]")
+
     console.print(f"Dataset directory: [cyan]{dataset_dir}[/cyan]")
     console.print(f"Output directory: [cyan]{output_dir}[/cyan]")
     console.print(f"Using GPUs: [cyan]{', '.join(map(str, gpu_ids))}[/cyan]\n")
