@@ -17,7 +17,6 @@ from typing import Annotated, List
 
 import imageio
 import numpy as np
-import torch
 import tyro
 from PIL import Image
 from rich import box
@@ -27,8 +26,6 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-
-from pipeline_difix import DifixPipeline
 
 console = Console()
 
@@ -255,8 +252,13 @@ def worker_process(
         output_dir: Output directory for videos
         worker_args: Worker arguments (model config, etc.)
     """
-    # Set GPU for this process
+    # Set GPU for this process BEFORE importing torch
     os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
+
+    # Import torch and pipeline AFTER setting CUDA_VISIBLE_DEVICES
+    import torch
+    from pipeline_difix import DifixPipeline
+
     device = torch.device('cuda:0')  # Always 0 since CUDA_VISIBLE_DEVICES is set
 
     # Random delay to avoid filesystem conflicts
@@ -559,6 +561,7 @@ def main(
         gpu_ids = [int(x.strip()) for x in gpus.split(',')]
     else:
         # Use all available GPUs
+        import torch
         gpu_count = torch.cuda.device_count()
         if gpu_count == 0:
             console.print("[red]No GPUs available![/red]")
@@ -617,9 +620,13 @@ def main(
 
     # Start worker processes
     console.print(f"[bold cyan]Starting {len(gpu_ids)} worker processes...[/bold cyan]\n")
+
+    import multiprocessing
+    ctx = multiprocessing.get_context('spawn')
+
     workers = []
     for gpu_id in gpu_ids:
-        p = Process(
+        p = ctx.Process(
             target=worker_process,
             args=(gpu_id, task_queue, status_dict, dataset_dir, output_dir, worker_args)
         )
@@ -690,7 +697,4 @@ def main(
 
 
 if __name__ == "__main__":
-    # CUDA requires 'spawn' method for multiprocessing
-    import multiprocessing
-    multiprocessing.set_start_method('spawn', force=True)
     tyro.cli(main)
